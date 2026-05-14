@@ -9,13 +9,13 @@
 class PluginProcessor;
 
 // Owns the OpenGL context that renders the visualizer behind the debug
-// overlay. Stage 3 ships a single fragment shader (inline string) that draws
-// a radial gradient with cheap audio-reactive layers — enough to prove the
-// audio → uniform → pixel pipeline works end-to-end. The Stage 4 visual
-// engine (SDF + warp + feedback + grain + particles) will replace the shader
-// body; the surrounding infrastructure stays.
+// overlay. Shaders live in assets/shaders/visualizer.{vert,frag}; in Debug
+// builds OPAL_DEV_SHADER_DIR points at the on-disk copies and the polling
+// Timer hot-reloads them on every save. Release builds fall back to the
+// embedded BinaryData copies.
 class VisualizerComponent : public juce::Component,
-                            public juce::OpenGLRenderer
+                            public juce::OpenGLRenderer,
+                            private juce::Timer
 {
 public:
     explicit VisualizerComponent (PluginProcessor&);
@@ -27,7 +27,12 @@ public:
     void openGLContextClosing() override;
 
 private:
+    void timerCallback() override;
+
     void compileShader();
+    juce::String loadShaderSource (const char* fileName,
+                                   const char* embeddedData,
+                                   int embeddedSize) const;
 
     PluginProcessor& processorRef;
     juce::OpenGLContext openGLContext;
@@ -51,6 +56,9 @@ private:
     juce::Time    startTime;
     std::uint32_t lastOnsetCounter { 0 };
     float         onsetPulse       { 0.0f };
+
+    juce::Time lastVertMtime;
+    juce::Time lastFragMtime;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VisualizerComponent)
 };

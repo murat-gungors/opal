@@ -111,13 +111,20 @@ target_compile_definitions(SharedCode
     JUCE_USE_CURL=0     # If you set this to 1, add `NEEDS_CURL TRUE` to the `juce_add_plugin` call
     JUCE_VST3_CAN_REPLACE_VST2=0
 
-    # Spec §1 decision Q1: Opal is licensed AGPLv3 — splash screen permitted to be hidden.
-    JUCE_DISPLAY_SPLASH_SCREEN=0
+    # JUCE 8 no longer renders the splash screen for any tier, so the legacy
+    # JUCE_DISPLAY_SPLASH_SCREEN flag is intentionally omitted — JUCE warns
+    # if you set it.
 
     CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
     VERSION="${CURRENT_VERSION}"
 
     PRODUCT_NAME_WITHOUT_VERSION="Opal"
+
+    # Stage 4.1 — in Debug builds, point the visualizer at the on-disk shader
+    # directory so it can hot-reload .glsl changes without rebuilding. In
+    # Release this is undefined and the visualizer falls back to the embedded
+    # BinaryData copies produced by juce_add_binary_data(Assets ...).
+    $<$<CONFIG:Debug>:OPAL_DEV_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders">
 )
 
 # Link to any other modules you added (with juce_add_module) here!
