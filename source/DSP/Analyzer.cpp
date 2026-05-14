@@ -19,8 +19,11 @@ namespace
     constexpr float kOnsetMinFlux          = 0.5f;
 
     // Time constants (seconds) for the envelope followers.
-    constexpr float kBandsTau = 0.010f; // 10 ms
-    constexpr float kRmsTau   = 0.030f; // 30 ms
+    constexpr float kBandsTau        = 0.010f;  // 10 ms — sustain
+    constexpr float kRmsTau          = 0.030f;  // 30 ms
+    constexpr float kPeakAttackTau   = 0.001f;  // 1 ms  — fast attack
+    constexpr float kPeakReleaseTau  = 0.150f;  // 150 ms — slow release
+    constexpr float kAvgTau          = 0.800f;  // 800 ms — long-term average
 }
 
 Analyzer::Analyzer()
@@ -51,9 +54,12 @@ void Analyzer::prepareToPlay (double newSampleRate)
     highBinLo = juce::jmin (numBins - 1, midBinHi + 1);
     highBinHi = freqToBin (20000.0f);
 
-    // Per-FFT-frame alpha for band envelopes.
+    // Per-FFT-frame alphas for the three band envelopes.
     const auto framePeriod = (float) hopSize / (float) sampleRate;
-    alphaBands = 1.0f - std::exp (-framePeriod / kBandsTau);
+    alphaBands       = 1.0f - std::exp (-framePeriod / kBandsTau);
+    alphaPeakAttack  = 1.0f - std::exp (-framePeriod / kPeakAttackTau);
+    alphaPeakRelease = 1.0f - std::exp (-framePeriod / kPeakReleaseTau);
+    alphaAvg         = 1.0f - std::exp (-framePeriod / kAvgTau);
 
     reset();
 }
@@ -72,6 +78,8 @@ void Analyzer::reset()
     fluxRingFilled       = 0;
 
     envBass = envMid = envHigh = envRms = 0.0f;
+    envBassPeak = envMidPeak = envHighPeak = 0.0f;
+    envBassAvg  = envMidAvg  = envHighAvg  = 0.0f;
     onsetCounterLocal = 0;
 }
 
@@ -143,6 +151,31 @@ void Analyzer::runFftFrame (AnalysisBus& bus)
     bus.bassLevel.store (envBass, std::memory_order_relaxed);
     bus.midLevel .store (envMid,  std::memory_order_relaxed);
     bus.highLevel.store (envHigh, std::memory_order_relaxed);
+
+    // Peak followers — asymmetric: fast attack (rises with content), slow
+    // release (lingers after the transient is gone).
+    const auto stepPeak = [this] (float& state, float current)
+    {
+        const auto alpha = current > state ? alphaPeakAttack : alphaPeakRelease;
+        state = alpha * current + (1.0f - alpha) * state;
+    };
+    stepPeak (envBassPeak, bass);
+    stepPeak (envMidPeak,  mid);
+    stepPeak (envHighPeak, high);
+
+    bus.bassPeak.store (envBassPeak, std::memory_order_relaxed);
+    bus.midPeak .store (envMidPeak,  std::memory_order_relaxed);
+    bus.highPeak.store (envHighPeak, std::memory_order_relaxed);
+
+    // Long-term symmetric average — used by the shader for baseline tides
+    // and to normalise against persistent loudness without choking transients.
+    envBassAvg = alphaAvg * bass + (1.0f - alphaAvg) * envBassAvg;
+    envMidAvg  = alphaAvg * mid  + (1.0f - alphaAvg) * envMidAvg;
+    envHighAvg = alphaAvg * high + (1.0f - alphaAvg) * envHighAvg;
+
+    bus.bassAvg.store (envBassAvg, std::memory_order_relaxed);
+    bus.midAvg .store (envMidAvg,  std::memory_order_relaxed);
+    bus.highAvg.store (envHighAvg, std::memory_order_relaxed);
 
     // Spectral flux: sum of positive magnitude deltas over previous frame.
     float flux = 0.0f;

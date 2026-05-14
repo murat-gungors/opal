@@ -63,7 +63,15 @@ private:
 
     float envBass { 0.0f }, envMid { 0.0f }, envHigh { 0.0f }, envRms { 0.0f };
 
-    float alphaBands { 0.0f };
+    // Peak followers (fast attack, slow release) and long-term averages,
+    // one set per band — butterchurn-style three-band three-smoothing.
+    float envBassPeak { 0.0f }, envMidPeak { 0.0f }, envHighPeak { 0.0f };
+    float envBassAvg  { 0.0f }, envMidAvg  { 0.0f }, envHighAvg  { 0.0f };
+
+    float alphaBands       { 0.0f };
+    float alphaPeakAttack  { 0.0f };
+    float alphaPeakRelease { 0.0f };
+    float alphaAvg         { 0.0f };
 
     uint32_t onsetCounterLocal { 0 };
 };

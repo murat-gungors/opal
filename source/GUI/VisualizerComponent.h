@@ -51,6 +51,12 @@ private:
     int uBassLoc       { -1 };
     int uMidLoc        { -1 };
     int uHighLoc       { -1 };
+    int uBassPeakLoc   { -1 };
+    int uMidPeakLoc    { -1 };
+    int uHighPeakLoc   { -1 };
+    int uBassAvgLoc    { -1 };
+    int uMidAvgLoc     { -1 };
+    int uHighAvgLoc    { -1 };
     int uRmsLoc        { -1 };
     int uOnsetPulseLoc { -1 };
     int uBeatPhaseLoc  { -1 };

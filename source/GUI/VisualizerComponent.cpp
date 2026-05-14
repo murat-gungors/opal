@@ -129,6 +129,12 @@ void VisualizerComponent::compileShaders()
         uBassLoc       = glGetUniformLocation (pid, "uBass");
         uMidLoc        = glGetUniformLocation (pid, "uMid");
         uHighLoc       = glGetUniformLocation (pid, "uHigh");
+        uBassPeakLoc   = glGetUniformLocation (pid, "uBassPeak");
+        uMidPeakLoc    = glGetUniformLocation (pid, "uMidPeak");
+        uHighPeakLoc   = glGetUniformLocation (pid, "uHighPeak");
+        uBassAvgLoc    = glGetUniformLocation (pid, "uBassAvg");
+        uMidAvgLoc     = glGetUniformLocation (pid, "uMidAvg");
+        uHighAvgLoc    = glGetUniformLocation (pid, "uHighAvg");
         uRmsLoc        = glGetUniformLocation (pid, "uRms");
         uOnsetPulseLoc = glGetUniformLocation (pid, "uOnsetPulse");
         uBeatPhaseLoc  = glGetUniformLocation (pid, "uBeatPhase");
@@ -227,11 +233,17 @@ void VisualizerComponent::renderOpenGL()
     const auto& analysis  = processorRef.getAnalysisBus();
     const auto& transport = processorRef.getTransportBus();
 
-    const auto bass   = analysis.bassLevel   .load (std::memory_order_relaxed);
-    const auto mid    = analysis.midLevel    .load (std::memory_order_relaxed);
-    const auto high   = analysis.highLevel   .load (std::memory_order_relaxed);
-    const auto rms    = analysis.rms         .load (std::memory_order_relaxed);
-    const auto onsets = analysis.onsetCounter.load (std::memory_order_relaxed);
+    const auto bass     = analysis.bassLevel   .load (std::memory_order_relaxed);
+    const auto mid      = analysis.midLevel    .load (std::memory_order_relaxed);
+    const auto high     = analysis.highLevel   .load (std::memory_order_relaxed);
+    const auto bassPk   = analysis.bassPeak    .load (std::memory_order_relaxed);
+    const auto midPk    = analysis.midPeak     .load (std::memory_order_relaxed);
+    const auto highPk   = analysis.highPeak    .load (std::memory_order_relaxed);
+    const auto bassAv   = analysis.bassAvg     .load (std::memory_order_relaxed);
+    const auto midAv    = analysis.midAvg      .load (std::memory_order_relaxed);
+    const auto highAv   = analysis.highAvg     .load (std::memory_order_relaxed);
+    const auto rms      = analysis.rms         .load (std::memory_order_relaxed);
+    const auto onsets   = analysis.onsetCounter.load (std::memory_order_relaxed);
 
     const auto ppq       = transport.ppqPosition.load (std::memory_order_relaxed);
     const auto beatPhase = static_cast<float> (ppq - std::floor (ppq));
@@ -250,6 +262,12 @@ void VisualizerComponent::renderOpenGL()
     if (uBassLoc       >= 0) glUniform1f (uBassLoc,       bass);
     if (uMidLoc        >= 0) glUniform1f (uMidLoc,        mid);
     if (uHighLoc       >= 0) glUniform1f (uHighLoc,       high);
+    if (uBassPeakLoc   >= 0) glUniform1f (uBassPeakLoc,   bassPk);
+    if (uMidPeakLoc    >= 0) glUniform1f (uMidPeakLoc,    midPk);
+    if (uHighPeakLoc   >= 0) glUniform1f (uHighPeakLoc,   highPk);
+    if (uBassAvgLoc    >= 0) glUniform1f (uBassAvgLoc,    bassAv);
+    if (uMidAvgLoc     >= 0) glUniform1f (uMidAvgLoc,     midAv);
+    if (uHighAvgLoc    >= 0) glUniform1f (uHighAvgLoc,    highAv);
     if (uRmsLoc        >= 0) glUniform1f (uRmsLoc,        rms);
     if (uOnsetPulseLoc >= 0) glUniform1f (uOnsetPulseLoc, onsetPulse);
     if (uBeatPhaseLoc  >= 0) glUniform1f (uBeatPhaseLoc,  beatPhase);
