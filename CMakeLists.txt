@@ -145,6 +145,15 @@ target_link_libraries("${PROJECT_NAME}" PRIVATE SharedCode)
 # IPP support, comment out to disable
 include(PamplejuceIPP)
 
+# cmake/Tests.cmake calls catch_discover_tests(Tests ${DISCOVERY_MODE} "PRE_TEST").
+# Without setting DISCOVERY_MODE here the call collapses to two positional
+# unknown args and Catch2 silently falls back to POST_BUILD discovery, which
+# races our xattr+sign POST_BUILD step and fails because macOS kills the
+# unsigned binary. Setting DISCOVERY_MODE to the literal "DISCOVERY_MODE"
+# keyword makes the call expand to `... DISCOVERY_MODE PRE_TEST` so tests
+# are enumerated at ctest time, after the sign step has run.
+set(DISCOVERY_MODE "DISCOVERY_MODE")
+
 # Everything related to the tests target
 include(Tests)
 

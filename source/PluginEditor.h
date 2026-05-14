@@ -1,9 +1,10 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "GUI/DebugOverlayComponent.h"
+#include "GUI/VisualizerComponent.h"
 
-class PluginEditor : public juce::AudioProcessorEditor,
-                     private juce::Timer
+class PluginEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit PluginEditor (PluginProcessor&);
@@ -13,13 +14,10 @@ public:
     void resized() override;
 
 private:
-    void timerCallback() override;
-
     PluginProcessor& processorRef;
 
-    // GUI-thread state for the onset flash indicator.
-    std::uint32_t lastOnsetCounter { 0 };
-    float         onsetFlashAlpha  { 0.0f };
+    VisualizerComponent   visualizer;
+    DebugOverlayComponent overlay;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };
