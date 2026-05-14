@@ -10,7 +10,7 @@ namespace
 {
     constexpr int kShaderPollIntervalMs = 250;
 
-    // Two triangles via GL_TRIANGLE_STRIP — 4 NDC corners
+    // Fullscreen triangle strip — 4 NDC corners
     constexpr float kFullscreenQuad[] = {
         -1.0f, -1.0f,
          1.0f, -1.0f,
@@ -34,8 +34,9 @@ VisualizerComponent::VisualizerComponent (PluginProcessor& p)
 
    #ifdef OPAL_DEV_SHADER_DIR
     const auto shaderDir = juce::File (OPAL_DEV_SHADER_DIR);
-    lastVertMtime = shaderDir.getChildFile ("visualizer.vert").getLastModificationTime();
-    lastFragMtime = shaderDir.getChildFile ("visualizer.frag").getLastModificationTime();
+    lastVertMtime     = shaderDir.getChildFile ("visualizer.vert" ).getLastModificationTime();
+    lastFragMtime     = shaderDir.getChildFile ("visualizer.frag" ).getLastModificationTime();
+    lastBlitFragMtime = shaderDir.getChildFile ("passthrough.frag").getLastModificationTime();
     startTimer (kShaderPollIntervalMs);
    #endif
 }
@@ -65,7 +66,7 @@ void VisualizerComponent::newOpenGLContextCreated()
 {
     using namespace juce::gl;
 
-    compileShader();
+    compileShaders();
 
     glGenVertexArrays (1, &vao);
     glBindVertexArray (vao);
@@ -83,63 +84,108 @@ void VisualizerComponent::newOpenGLContextCreated()
     glBindVertexArray (0);
 }
 
-void VisualizerComponent::compileShader()
+void VisualizerComponent::compileShaders()
 {
-    auto candidate = std::make_unique<juce::OpenGLShaderProgram> (openGLContext);
-
-    const auto vertSource = loadShaderSource ("visualizer.vert",
-                                              BinaryData::visualizer_vert,
-                                              BinaryData::visualizer_vertSize);
-    const auto fragSource = loadShaderSource ("visualizer.frag",
-                                              BinaryData::visualizer_frag,
-                                              BinaryData::visualizer_fragSize);
-
-    if (! candidate->addVertexShader (vertSource))
-    {
-        DBG ("Opal: vertex shader compile failed: " << candidate->getLastError());
-        return;
-    }
-    if (! candidate->addFragmentShader (fragSource))
-    {
-        DBG ("Opal: fragment shader compile failed: " << candidate->getLastError());
-        return;
-    }
-    if (! candidate->link())
-    {
-        DBG ("Opal: shader link failed: " << candidate->getLastError());
-        return;
-    }
-
-    // Atomic swap — if any earlier step failed we returned without touching
-    // the live program, so the visualizer keeps showing the last good shader.
-    shaderProgram = std::move (candidate);
-
     using namespace juce::gl;
-    const auto pid = shaderProgram->getProgramID();
-    uResolutionLoc = glGetUniformLocation (pid, "uResolution");
-    uTimeLoc       = glGetUniformLocation (pid, "uTime");
-    uBassLoc       = glGetUniformLocation (pid, "uBass");
-    uMidLoc        = glGetUniformLocation (pid, "uMid");
-    uHighLoc       = glGetUniformLocation (pid, "uHigh");
-    uRmsLoc        = glGetUniformLocation (pid, "uRms");
-    uOnsetPulseLoc = glGetUniformLocation (pid, "uOnsetPulse");
-    uBeatPhaseLoc  = glGetUniformLocation (pid, "uBeatPhase");
+
+    auto buildProgram = [this] (const char* vertName, const char* vertData, int vertSize,
+                                const char* fragName, const char* fragData, int fragSize,
+                                std::unique_ptr<juce::OpenGLShaderProgram>& outProgram) -> bool
+    {
+        auto candidate = std::make_unique<juce::OpenGLShaderProgram> (openGLContext);
+        const auto vertSrc = loadShaderSource (vertName, vertData, vertSize);
+        const auto fragSrc = loadShaderSource (fragName, fragData, fragSize);
+
+        if (! candidate->addVertexShader (vertSrc))
+        {
+            DBG ("Opal: vertex shader compile failed (" << fragName << "): "
+                 << candidate->getLastError());
+            return false;
+        }
+        if (! candidate->addFragmentShader (fragSrc))
+        {
+            DBG ("Opal: fragment shader compile failed (" << fragName << "): "
+                 << candidate->getLastError());
+            return false;
+        }
+        if (! candidate->link())
+        {
+            DBG ("Opal: shader link failed (" << fragName << "): "
+                 << candidate->getLastError());
+            return false;
+        }
+
+        outProgram = std::move (candidate);
+        return true;
+    };
+
+    if (buildProgram ("visualizer.vert", BinaryData::visualizer_vert, BinaryData::visualizer_vertSize,
+                      "visualizer.frag", BinaryData::visualizer_frag, BinaryData::visualizer_fragSize,
+                      sceneShader))
+    {
+        const auto pid = sceneShader->getProgramID();
+        uResolutionLoc = glGetUniformLocation (pid, "uResolution");
+        uTimeLoc       = glGetUniformLocation (pid, "uTime");
+        uBassLoc       = glGetUniformLocation (pid, "uBass");
+        uMidLoc        = glGetUniformLocation (pid, "uMid");
+        uHighLoc       = glGetUniformLocation (pid, "uHigh");
+        uRmsLoc        = glGetUniformLocation (pid, "uRms");
+        uOnsetPulseLoc = glGetUniformLocation (pid, "uOnsetPulse");
+        uBeatPhaseLoc  = glGetUniformLocation (pid, "uBeatPhase");
+        uDpiScaleLoc   = glGetUniformLocation (pid, "uDpiScale");
+        uPrevFrameLoc  = glGetUniformLocation (pid, "uPrevFrame");
+    }
+
+    if (buildProgram ("visualizer.vert",  BinaryData::visualizer_vert,  BinaryData::visualizer_vertSize,
+                      "passthrough.frag", BinaryData::passthrough_frag, BinaryData::passthrough_fragSize,
+                      blitShader))
+    {
+        uBlitTextureLoc = glGetUniformLocation (blitShader->getProgramID(), "uTexture");
+    }
+}
+
+void VisualizerComponent::ensureFramebuffers (int widthPx, int heightPx)
+{
+    if (widthPx == fboWidth && heightPx == fboHeight && fboA.isValid() && fboB.isValid())
+        return;
+
+    fboA.release();
+    fboB.release();
+
+    fboA.initialise (openGLContext, widthPx, heightPx);
+    fboB.initialise (openGLContext, widthPx, heightPx);
+
+    // Clear both so first feedback sample isn't undefined garbage.
+    fboA.makeCurrentRenderingTarget();
+    juce::OpenGLHelpers::clear (juce::Colours::black);
+    fboA.releaseAsRenderingTarget();
+
+    fboB.makeCurrentRenderingTarget();
+    juce::OpenGLHelpers::clear (juce::Colours::black);
+    fboB.releaseAsRenderingTarget();
+
+    fboWidth  = widthPx;
+    fboHeight = heightPx;
 }
 
 void VisualizerComponent::timerCallback()
 {
    #ifdef OPAL_DEV_SHADER_DIR
     const auto shaderDir = juce::File (OPAL_DEV_SHADER_DIR);
-    const auto vertMtime = shaderDir.getChildFile ("visualizer.vert").getLastModificationTime();
-    const auto fragMtime = shaderDir.getChildFile ("visualizer.frag").getLastModificationTime();
+    const auto vertMtime     = shaderDir.getChildFile ("visualizer.vert" ).getLastModificationTime();
+    const auto fragMtime     = shaderDir.getChildFile ("visualizer.frag" ).getLastModificationTime();
+    const auto blitMtime     = shaderDir.getChildFile ("passthrough.frag").getLastModificationTime();
 
-    if (vertMtime > lastVertMtime || fragMtime > lastFragMtime)
+    if (vertMtime > lastVertMtime
+     || fragMtime > lastFragMtime
+     || blitMtime > lastBlitFragMtime)
     {
-        lastVertMtime = vertMtime;
-        lastFragMtime = fragMtime;
+        lastVertMtime     = vertMtime;
+        lastFragMtime     = fragMtime;
+        lastBlitFragMtime = blitMtime;
 
         openGLContext.executeOnGLThread (
-            [this] (juce::OpenGLContext&) { compileShader(); },
+            [this] (juce::OpenGLContext&) { compileShaders(); },
             /*blockUntilFinished*/ false);
     }
    #endif
@@ -149,17 +195,34 @@ void VisualizerComponent::renderOpenGL()
 {
     using namespace juce::gl;
 
-    const auto scale = (float) openGLContext.getRenderingScale();
-    const auto w = (float) getWidth()  * scale;
-    const auto h = (float) getHeight() * scale;
+    const auto dpiScale = static_cast<float> (openGLContext.getRenderingScale());
+    const auto widthPx  = static_cast<int> (static_cast<float> (getWidth())  * dpiScale);
+    const auto heightPx = static_cast<int> (static_cast<float> (getHeight()) * dpiScale);
 
-    glViewport (0, 0, (GLsizei) w, (GLsizei) h);
-    juce::OpenGLHelpers::clear (juce::Colour (0xff1a1f24));
-
-    if (shaderProgram == nullptr)
+    if (widthPx <= 0 || heightPx <= 0)
         return;
 
-    shaderProgram->use();
+    ensureFramebuffers (widthPx, heightPx);
+
+    if (sceneShader == nullptr || blitShader == nullptr)
+    {
+        juce::OpenGLHelpers::clear (juce::Colour (0xff1a1f24));
+        return;
+    }
+
+    auto& target   = (currentFbo == 0) ? fboA : fboB;
+    auto& previous = (currentFbo == 0) ? fboB : fboA;
+
+    // ============= Pass 1 — render scene into "target", sampling "previous"
+    target.makeCurrentRenderingTarget();
+    glViewport (0, 0, widthPx, heightPx);
+    juce::OpenGLHelpers::clear (juce::Colours::black);
+
+    sceneShader->use();
+
+    glActiveTexture (GL_TEXTURE0);
+    glBindTexture (GL_TEXTURE_2D, previous.getTextureID());
+    if (uPrevFrameLoc >= 0) glUniform1i (uPrevFrameLoc, 0);
 
     const auto& analysis  = processorRef.getAnalysisBus();
     const auto& transport = processorRef.getTransportBus();
@@ -173,7 +236,6 @@ void VisualizerComponent::renderOpenGL()
     const auto ppq       = transport.ppqPosition.load (std::memory_order_relaxed);
     const auto beatPhase = static_cast<float> (ppq - std::floor (ppq));
 
-    // ~150 ms half-life at 60 fps (0.92^9 ≈ 0.47).
     if (onsets != lastOnsetCounter)
         onsetPulse = 1.0f;
     else
@@ -183,7 +245,7 @@ void VisualizerComponent::renderOpenGL()
     const auto elapsed = static_cast<float> (
         (juce::Time::getCurrentTime() - startTime).inSeconds());
 
-    if (uResolutionLoc >= 0) glUniform2f (uResolutionLoc, w, h);
+    if (uResolutionLoc >= 0) glUniform2f (uResolutionLoc, (float) widthPx, (float) heightPx);
     if (uTimeLoc       >= 0) glUniform1f (uTimeLoc,       elapsed);
     if (uBassLoc       >= 0) glUniform1f (uBassLoc,       bass);
     if (uMidLoc        >= 0) glUniform1f (uMidLoc,        mid);
@@ -191,10 +253,32 @@ void VisualizerComponent::renderOpenGL()
     if (uRmsLoc        >= 0) glUniform1f (uRmsLoc,        rms);
     if (uOnsetPulseLoc >= 0) glUniform1f (uOnsetPulseLoc, onsetPulse);
     if (uBeatPhaseLoc  >= 0) glUniform1f (uBeatPhaseLoc,  beatPhase);
+    if (uDpiScaleLoc   >= 0) glUniform1f (uDpiScaleLoc,   dpiScale);
 
     glBindVertexArray (vao);
     glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray (0);
+
+    target.releaseAsRenderingTarget();
+
+    // ============= Pass 2 — blit "target" to the default sRGB framebuffer
+    glViewport (0, 0, widthPx, heightPx);
+    juce::OpenGLHelpers::clear (juce::Colours::black);
+
+    glEnable (GL_FRAMEBUFFER_SRGB);
+
+    blitShader->use();
+    glActiveTexture (GL_TEXTURE0);
+    glBindTexture (GL_TEXTURE_2D, target.getTextureID());
+    if (uBlitTextureLoc >= 0) glUniform1i (uBlitTextureLoc, 0);
+
+    glBindVertexArray (vao);
+    glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray (0);
+
+    glDisable (GL_FRAMEBUFFER_SRGB);
+
+    currentFbo = 1 - currentFbo;
 }
 
 void VisualizerComponent::openGLContextClosing()
@@ -203,5 +287,12 @@ void VisualizerComponent::openGLContextClosing()
 
     if (vbo != 0) { glDeleteBuffers (1, &vbo); vbo = 0; }
     if (vao != 0) { glDeleteVertexArrays (1, &vao); vao = 0; }
-    shaderProgram.reset();
+
+    fboA.release();
+    fboB.release();
+    fboWidth = fboHeight = 0;
+    currentFbo = 0;
+
+    sceneShader.reset();
+    blitShader.reset();
 }

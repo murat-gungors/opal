@@ -22,17 +22,29 @@ The MVP ships **one fragment shader** (spec §4.1). It should be flexible enough
 - Aggressive, short-decay feedback creating ribbon-like wisps
 - References: cinder/ember photography, [reference screen recording — not committed]
 
-Pole A is `DRIVE`, `BASS`, `WARP` low + `TRAIL` high + saturation high. Pole B is `DRIVE`, `GRAIN`, `POP` high + `WARP` high + `TEMP` at the desaturated end. The shader interpolates continuously between.
+### Pole C — "Cinematic monolith" (reference video set, 2026-05-14)
+- Pure monochrome with rare ember-orange accents (smoke + sparks pass only)
+- Dominant single silhouette occupying most of the frame
+- Surface character: topographic contour lines, vertical drip streaks, brutalist mass
+- Atmospheric haze / smoke (low-frequency value noise, very slow drift)
+- Symmetric or mass-dominant composition (neoclassical / brutalist / topographic registers)
+- References: 5 Higgsfield AI-generated videos (hf_20260506_*.mp4, not committed) showing topographic mountains, classical ruins explosion, brutalist tower, neoclassical pantheon
+
+Pole A is `DRIVE`, `BASS`, `WARP` low + `TRAIL` high + saturation high. Pole B is `DRIVE`, `GRAIN`, `POP` high + `WARP` high + `TEMP` at the desaturated end. Pole C is `DRIVE`, `BASS`, `TRAIL` high + `TEMP` cold/desaturated + `WARP` low + `GRAIN` moderate — a still, massive register dominated by silhouette and atmosphere rather than motion. The shader interpolates continuously between all three.
 
 ## Shader layer additions to spec §6.2
 
-Spec §6.2 stack: gradient → SDF → warp → feedback → onset pulse → grain. **Add two more layers** to support Pole B:
+Spec §6.2 stack: gradient → SDF → warp → feedback → onset pulse → grain. **Add four more layers** to cover Pole B and Pole C:
 
-7. **Particle field** — high-frequency Worley/value noise sampled with multi-octave FBM, sharpened via `smoothstep(threshold, threshold+ε, n)` to produce particle-like dots. Flow advected by curl-noise or radial vector field driven by audio onset. Mixed over the gradient layer.
+7. **Particle field** (Pole B) — high-frequency Worley/value noise sampled with multi-octave FBM, sharpened via `smoothstep(threshold, threshold+ε, n)` to produce particle-like dots. Flow advected by curl-noise or radial vector field driven by audio onset. Mixed over the gradient layer.
 
 8. **Symmetry fold** (optional, knob-gated) — `uv.y = abs(uv.y - 0.5) + 0.5` for horizontal mirror; `uv = abs(uv - 0.5) + 0.5` for quadrant kaleidoscope; polar coord wrap for radial kaleidoscope. Implementation cost is one uniform branch and a few coordinate ops.
 
-Order in the pipeline: gradient → particle field (mixed in) → SDF (composited) → warp → symmetry fold → feedback → onset pulse → grain.
+9. **Multi-threshold contour lines** (Pole C) — sample SDF at evenly spaced thresholds, draw thin AA-stroked isolines on top of the form. Produces the topographic / "wireframe over mass" register seen in the Pole C mountain video. Line spacing and width modulated by bass.
+
+10. **FBM atmospheric haze** (Pole C) — 3-4 octave value noise sampled at low frequency, very slow temporal drift, composited as semi-transparent overlay. Provides volumetric / smoke depth without true 3D. Density modulated by mid-band energy or RMS.
+
+Order in the pipeline: feedback prev frame (decay) → warp → gradient base → FBM haze → SDF form (composited) → contour lines on form → particle field (Pole B) → symmetry fold → onset pulse → tonemap → grain (DPI-aware).
 
 ## Quality targets (Stage 4+)
 
