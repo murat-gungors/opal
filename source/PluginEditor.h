@@ -17,5 +17,9 @@ private:
 
     PluginProcessor& processorRef;
 
+    // GUI-thread state for the onset flash indicator.
+    std::uint32_t lastOnsetCounter { 0 };
+    float         onsetFlashAlpha  { 0.0f };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

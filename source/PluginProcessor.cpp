@@ -86,9 +86,10 @@ void PluginProcessor::changeProgramName (int index, const juce::String& newName)
 //==============================================================================
 void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Use this method as the place to do any pre-playback
-    // initialisation that you need..
-    juce::ignoreUnused (sampleRate, samplesPerBlock);
+    analyzer.prepareToPlay (sampleRate);
+    // Pre-allocate the mono mixdown buffer so processBlock can reuse it.
+    monoScratch.setSize (1, samplesPerBlock, /*keepExistingContent*/ false,
+                              /*clearExtraSpace*/ true, /*avoidReallocating*/ false);
 }
 
 void PluginProcessor::releaseResources()
@@ -122,11 +123,28 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                     juce::MidiBuffer& midiMessages)
 {
-    juce::ignoreUnused (buffer, midiMessages);
+    juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    // Audio passes through unchanged — Opal is a pure visualizer.
-    // Stage 2 will tap `buffer` read-only for FFT/envelope analysis.
+    // Audio passes through unchanged — Opal is a pure visualizer. We tap a
+    // mono mixdown read-only for the FFT / envelope / onset analyzer.
+
+    const auto numSamples  = buffer.getNumSamples();
+    const auto numChannels = buffer.getNumChannels();
+
+    if (numSamples > 0 && numChannels > 0 && monoScratch.getNumSamples() >= numSamples)
+    {
+        auto* mono = monoScratch.getWritePointer (0);
+        juce::FloatVectorOperations::copy (mono, buffer.getReadPointer (0), numSamples);
+
+        for (int ch = 1; ch < numChannels; ++ch)
+            juce::FloatVectorOperations::add (mono, buffer.getReadPointer (ch), numSamples);
+
+        if (numChannels > 1)
+            juce::FloatVectorOperations::multiply (mono, 1.0f / (float) numChannels, numSamples);
+
+        analyzer.processSamples (mono, numSamples, analysis);
+    }
 
     if (auto* playHead = getPlayHead())
     {

@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "DSP/Analyzer.h"
+#include "Util/AnalysisBus.h"
 #include "Util/HostTransportBus.h"
 
 #if (MSVC)
@@ -41,9 +43,13 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     const opal::HostTransportBus& getTransportBus() const noexcept { return transport; }
+    const opal::AnalysisBus&      getAnalysisBus()  const noexcept { return analysis;  }
 
 private:
-    opal::HostTransportBus transport;
+    opal::HostTransportBus   transport;
+    opal::AnalysisBus        analysis;
+    opal::Analyzer           analyzer;
+    juce::AudioBuffer<float> monoScratch;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

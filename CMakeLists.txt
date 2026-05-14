@@ -73,6 +73,13 @@ if (APPLE)
     endforeach()
 endif()
 
+# Same FileProvider issue makes the Tests executable launch silently die before
+# Catch2's discovery script can list its tests: macOS kills unsigned binaries
+# with provenance xattrs attached. Strip xattrs and ad-hoc sign the Tests
+# binary as a POST_BUILD step so catch_discover_tests can introspect it.
+# The Tests target is defined inside cmake/Tests.cmake (included at the bottom
+# of this file) — register the hook after that point.
+
 # This lets us use our code in both the JUCE targets and our Test target
 # Without running into ODR violations
 add_library(SharedCode INTERFACE)
@@ -141,8 +148,22 @@ include(PamplejuceIPP)
 # Everything related to the tests target
 include(Tests)
 
-# A separate target for Benchmarks (keeps the Tests target fast)
-include(Benchmarks)
+# Benchmarks intentionally not wired up for v0.1 — the upstream Benchmarks.cmake
+# uses POST_BUILD test discovery that runs the freshly-linked unsigned binary
+# before our xattr+sign POST_BUILD can fix it, so macOS kills it. If/when we
+# need benchmarks, either patch the discovery mode upstream or sign at a
+# different phase. Tests target uses PRE_TEST discovery and works fine.
+
+# See the FileProvider note near juce_add_plugin — the Tests binary needs its
+# xattrs stripped and an ad-hoc signature applied so macOS lets the Catch2
+# discovery subprocess execute it at ctest time.
+if (APPLE AND TARGET Tests)
+    add_custom_command(TARGET Tests POST_BUILD
+        COMMAND /usr/bin/xattr -cr  "$<TARGET_FILE:Tests>"
+        COMMAND /usr/bin/codesign --force --sign - "$<TARGET_FILE:Tests>"
+        COMMENT "Stripping xattrs and ad-hoc signing Tests"
+        VERBATIM)
+endif()
 
 # Output some config for CI (like our PRODUCT_NAME)
 include(GitHubENV)
