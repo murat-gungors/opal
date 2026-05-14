@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "Util/HostTransportBus.h"
+
 #if (MSVC)
 #include "ipps.h"
 #endif
@@ -38,6 +40,10 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    const opal::HostTransportBus& getTransportBus() const noexcept { return transport; }
+
 private:
+    opal::HostTransportBus transport;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

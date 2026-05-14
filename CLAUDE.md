@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository.
 
 Opal is an audio-reactive visual generator. Standalone macOS app + VST3 plugin from the same codebase. Visuals lock to the beat and energy contour of incoming audio. Minimal UI: a full-screen visualizer area + 8 knobs.
 
-The authoritative spec lives at [`docs/OPAL_TECHNICAL_SPEC.md`](docs/OPAL_TECHNICAL_SPEC.md). Read it before making non-trivial decisions.
+The authoritative spec lives at [`docs/OPAL_TECHNICAL_SPEC.md`](docs/OPAL_TECHNICAL_SPEC.md). Read it before making non-trivial decisions. Aesthetic / quality direction that emerged after the spec was frozen lives in [`docs/visual-direction.md`](docs/visual-direction.md) — read this before Stage 3+ shader work.
 
 ## Stage-gated development
 

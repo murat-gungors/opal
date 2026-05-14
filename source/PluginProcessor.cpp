@@ -125,8 +125,18 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     juce::ignoreUnused (buffer, midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    // Opal is a pure visualizer: audio passes through unchanged. Stage 2 will
-    // tap `buffer` read-only for analysis. RT-safe — no allocation, no locks.
+    // Audio passes through unchanged — Opal is a pure visualizer.
+    // Stage 2 will tap `buffer` read-only for FFT/envelope analysis.
+
+    if (auto* playHead = getPlayHead())
+    {
+        if (const auto pos = playHead->getPosition())
+        {
+            transport.bpm        .store (static_cast<float> (pos->getBpm()        .orFallback (0.0)), std::memory_order_relaxed);
+            transport.ppqPosition.store (                    pos->getPpqPosition().orFallback (0.0),  std::memory_order_relaxed);
+            transport.isPlaying  .store (                    pos->getIsPlaying(),                     std::memory_order_relaxed);
+        }
+    }
 }
 
 //==============================================================================
