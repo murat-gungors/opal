@@ -65,9 +65,17 @@ juce_add_plugin("${PROJECT_NAME}"
 if (APPLE)
     foreach(_opal_format IN ITEMS Standalone VST3 AU AUv3)
         if (TARGET "${PROJECT_NAME}_${_opal_format}")
+            # 1. Strip FileProvider xattrs that break ad-hoc codesigning.
+            # 2. Delete any pre-existing _CodeSignature so Xcode's final
+            #    codesign phase always signs a fresh bundle — without this,
+            #    when bundle contents change after an earlier sign step
+            #    (e.g. BinaryData regenerated from an edited shader, JUCE's
+            #    moduleinfo helper running after JUCE's own ad-hoc sign),
+            #    codesign fails with "code object is not signed at all".
             add_custom_command(TARGET "${PROJECT_NAME}_${_opal_format}" POST_BUILD
                 COMMAND /usr/bin/xattr -cr "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}_${_opal_format}>"
-                COMMENT "Stripping extended attributes from ${_opal_format} bundle"
+                COMMAND /bin/rm -rf "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}_${_opal_format}>/Contents/_CodeSignature"
+                COMMENT "Prepping ${_opal_format} bundle for codesign"
                 VERBATIM)
         endif()
     endforeach()

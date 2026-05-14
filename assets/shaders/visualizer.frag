@@ -39,60 +39,77 @@ float smin (float a, float b, float k)
     return mix (b, a, h) - k * h * (1.0 - h);
 }
 
+// Cheap IQ hash — returns a 0..1 pseudo-random scalar per input vector.
+float hash (vec2 p)
+{
+    return fract (sin (dot (p, vec2 (127.1, 311.7))) * 43758.5453);
+}
+
 void main()
 {
     vec2 p = vUv * 2.0 - 1.0;
     float aspect = uResolution.x / max (uResolution.y, 1.0);
     p.x *= aspect;
 
-    float r = length (p);
+    // -------- Domain warp ---------------------------------------------------
+    // sin(p.yx * freq + time) deforms the coordinate field before any SDF or
+    // gradient lookup, so background and form both flow with one motion.
+    // Mid-band energy scales the amplitude — visuals literally swim with the
+    // mid content of the track. Baseline amp keeps a subtle drift even at
+    // silence so the picture never feels frozen.
+    float warpAmp  = 0.04 + uMid * 0.08;
+    float warpFreq = 3.2;
+    vec2  warp = vec2 (sin (p.y * warpFreq + uTime * 0.55),
+                       cos (p.x * warpFreq + uTime * 0.42)) * warpAmp;
+    vec2  pw = p + warp;
+    float r  = length (pw);
 
-    // Background: vertical gradient × radial vignette so corners drop dark
-    // and the centre reads as the warmer part of the palette.
+    // -------- Background ----------------------------------------------------
     float vertical = vUv.y;
     float vignette = 1.0 - smoothstep (0.5, 1.5, r);
     float bgT      = mix (0.04, 0.40, vertical) * vignette;
     vec3  col      = samplePalette (bgT);
 
-    // Primary SDF form: main blob plus a smaller companion smin'd in, slowly
-    // drifting under the influence of bass and time. Bass also grows the
-    // base radius — the form breathes with the kick drum.
+    // -------- SDF form ------------------------------------------------------
     float baseR  = 0.30 + uBass * 0.25;
     vec2  drift  = vec2 (sin (uTime * 0.32) * 0.16,
                          cos (uTime * 0.27) * 0.10) * (0.5 + uBass * 0.6);
-    float d1 = sdCircle (p,         baseR);
-    float d2 = sdCircle (p - drift, baseR * 0.55);
+    float d1 = sdCircle (pw,         baseR);
+    float d2 = sdCircle (pw - drift, baseR * 0.55);
     float d  = smin (d1, d2, 0.30);
 
-    // Form colour reaches into the warmer end of the palette as bass /
-    // onset increase, so transients literally brighten the blob.
-    float formT = 0.55 + uBass * 0.35 + uOnsetPulse * 0.15;
+    float formT      = 0.55 + uBass * 0.35 + uOnsetPulse * 0.15;
     vec3  formColour = samplePalette (formT);
 
-    // Soft halo outside the form — exponential falloff with bass-controlled
-    // width. Reads as photographic bloom around the silhouette.
     float haloWidth = 0.10 + uBass * 0.30;
     float halo      = exp (-max (d, 0.0) * (8.0 / haloWidth));
     col += formColour * halo * (0.20 + uBass * 0.45);
 
-    // Anti-aliased fill using screen-space derivatives — 1 px transition
-    // around the SDF zero crossing, so the edge stays crisp at any DPI.
     float aa = 1.0 - smoothstep (-fwidth (d), fwidth (d), d);
     col = mix (col, formColour, aa);
 
-    // Onset → brief overall brightness pump.
+    // -------- Onset / drift / beat phase ------------------------------------
     col *= 1.0 + uOnsetPulse * 0.45;
 
-    // Time drift so silence never feels dead.
     col += 0.010 * vec3 (sin (uTime * 0.6),
                          cos (uTime * 0.5),
                          sin (uTime * 0.7 + 1.5));
 
-    // Beat phase subtly modulates amplitude in proportion to current RMS.
     col *= 1.0 + 0.04 * sin (uBeatPhase * 6.2831853) * uRms;
 
-    // Reinhard tonemap keeps highlights in [0,1).
+    // -------- Tonemap -------------------------------------------------------
     col = col / (1.0 + col);
+
+    // -------- Hash-grain dither (top layer) ---------------------------------
+    // Per-pixel pseudo-random noise sits AFTER tonemap so any banding in the
+    // compressed output gets dithered out. The * 0.5 makes grain cells span
+    // ~2 logical pixels — visible without looking like static. + uTime * 60
+    // re-rolls each frame. High-band energy boosts amplitude so brittle /
+    // sibilant content gets more texture. Phase 4.5 will make this DPI-aware
+    // (Retina ×2) once we control the framebuffer scale.
+    float n = hash (vUv * uResolution.xy * 0.5 + uTime * 60.0) * 2.0 - 1.0;
+    float grainAmp = 0.02 + uHigh * 0.06;
+    col += vec3 (n) * grainAmp;
 
     fragColor = vec4 (col, 1.0);
 }
