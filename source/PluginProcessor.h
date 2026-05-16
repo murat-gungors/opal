@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "DSP/Analyzer.h"
+#include "Plugin/PluginParameters.h"
 #include "Util/AnalysisBus.h"
 #include "Util/HostTransportBus.h"
 
@@ -45,11 +46,15 @@ public:
     const opal::HostTransportBus& getTransportBus() const noexcept { return transport; }
     const opal::AnalysisBus&      getAnalysisBus()  const noexcept { return analysis;  }
 
+    juce::AudioProcessorValueTreeState& getParameters() noexcept       { return parameters; }
+    const juce::AudioProcessorValueTreeState& getParameters() const noexcept { return parameters; }
+
 private:
-    opal::HostTransportBus   transport;
-    opal::AnalysisBus        analysis;
-    opal::Analyzer           analyzer;
-    juce::AudioBuffer<float> monoScratch;
+    opal::HostTransportBus              transport;
+    opal::AnalysisBus                   analysis;
+    opal::Analyzer                      analyzer;
+    juce::AudioBuffer<float>            monoScratch;
+    juce::AudioProcessorValueTreeState  parameters;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

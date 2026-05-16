@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "GUI/DebugOverlayComponent.h"
+#include "GUI/KnobStrip.h"
 #include "GUI/VisualizerComponent.h"
 
 class PluginEditor : public juce::AudioProcessorEditor
@@ -17,11 +18,13 @@ public:
 private:
     void toggleFullscreen();
     void exitFullscreen();
+    void applyFullscreenChromeVisibility (bool fullscreen);
 
     PluginProcessor& processorRef;
 
     VisualizerComponent   visualizer;
     DebugOverlayComponent overlay;
+    KnobStrip             knobStrip;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

@@ -63,6 +63,26 @@ private:
     int uDpiScaleLoc   { -1 };
     int uPrevFrameLoc  { -1 };
 
+    // Knob uniforms (Stage 5)
+    int uDriveLoc { -1 };
+    int uBassKLoc { -1 };
+    int uHueLoc   { -1 };
+    int uGrainLoc { -1 };
+    int uWarpLoc  { -1 };
+    int uTrailLoc { -1 };
+    int uPopLoc   { -1 };
+    int uTempLoc  { -1 };
+
+    // Raw AVTS atomic pointers — RT-safe per-render reads.
+    std::atomic<float>* pDrive { nullptr };
+    std::atomic<float>* pBass  { nullptr };
+    std::atomic<float>* pHue   { nullptr };
+    std::atomic<float>* pGrain { nullptr };
+    std::atomic<float>* pWarp  { nullptr };
+    std::atomic<float>* pTrail { nullptr };
+    std::atomic<float>* pPop   { nullptr };
+    std::atomic<float>* pTemp  { nullptr };
+
     int uBlitTextureLoc { -1 };
 
     // -------- Geometry ------------------------------------------------------

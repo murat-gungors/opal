@@ -1,6 +1,7 @@
 #include "VisualizerComponent.h"
 
 #include "../PluginProcessor.h"
+#include "../Plugin/PluginParameters.h"
 
 #include "BinaryData.h"
 
@@ -23,6 +24,16 @@ VisualizerComponent::VisualizerComponent (PluginProcessor& p)
     : processorRef (p)
 {
     setOpaque (true);
+
+    auto& apvts = processorRef.getParameters();
+    pDrive = apvts.getRawParameterValue (opal::ParamID::drive);
+    pBass  = apvts.getRawParameterValue (opal::ParamID::bass);
+    pHue   = apvts.getRawParameterValue (opal::ParamID::hue);
+    pGrain = apvts.getRawParameterValue (opal::ParamID::grain);
+    pWarp  = apvts.getRawParameterValue (opal::ParamID::warp);
+    pTrail = apvts.getRawParameterValue (opal::ParamID::trail);
+    pPop   = apvts.getRawParameterValue (opal::ParamID::pop);
+    pTemp  = apvts.getRawParameterValue (opal::ParamID::temp);
 
     openGLContext.setOpenGLVersionRequired (juce::OpenGLContext::OpenGLVersion::openGL4_1);
     openGLContext.setRenderer (this);
@@ -140,6 +151,15 @@ void VisualizerComponent::compileShaders()
         uBeatPhaseLoc  = glGetUniformLocation (pid, "uBeatPhase");
         uDpiScaleLoc   = glGetUniformLocation (pid, "uDpiScale");
         uPrevFrameLoc  = glGetUniformLocation (pid, "uPrevFrame");
+
+        uDriveLoc = glGetUniformLocation (pid, "uDrive");
+        uBassKLoc = glGetUniformLocation (pid, "uBassK");
+        uHueLoc   = glGetUniformLocation (pid, "uHue");
+        uGrainLoc = glGetUniformLocation (pid, "uGrain");
+        uWarpLoc  = glGetUniformLocation (pid, "uWarp");
+        uTrailLoc = glGetUniformLocation (pid, "uTrail");
+        uPopLoc   = glGetUniformLocation (pid, "uPop");
+        uTempLoc  = glGetUniformLocation (pid, "uTemp");
     }
 
     if (buildProgram ("visualizer.vert",  BinaryData::visualizer_vert,  BinaryData::visualizer_vertSize,
@@ -257,6 +277,16 @@ void VisualizerComponent::renderOpenGL()
     const auto elapsed = static_cast<float> (
         (juce::Time::getCurrentTime() - startTime).inSeconds());
 
+    // Knob values — raw atomic loads from the AVTS pointer table.
+    const auto kDrive = pDrive != nullptr ? pDrive->load (std::memory_order_relaxed) : 0.5f;
+    const auto kBass  = pBass  != nullptr ? pBass ->load (std::memory_order_relaxed) : 0.5f;
+    const auto kHue   = pHue   != nullptr ? pHue  ->load (std::memory_order_relaxed) : 0.5f;
+    const auto kGrain = pGrain != nullptr ? pGrain->load (std::memory_order_relaxed) : 0.5f;
+    const auto kWarp  = pWarp  != nullptr ? pWarp ->load (std::memory_order_relaxed) : 0.5f;
+    const auto kTrail = pTrail != nullptr ? pTrail->load (std::memory_order_relaxed) : 0.5f;
+    const auto kPop   = pPop   != nullptr ? pPop  ->load (std::memory_order_relaxed) : 0.5f;
+    const auto kTemp  = pTemp  != nullptr ? pTemp ->load (std::memory_order_relaxed) : 0.5f;
+
     if (uResolutionLoc >= 0) glUniform2f (uResolutionLoc, (float) widthPx, (float) heightPx);
     if (uTimeLoc       >= 0) glUniform1f (uTimeLoc,       elapsed);
     if (uBassLoc       >= 0) glUniform1f (uBassLoc,       bass);
@@ -272,6 +302,15 @@ void VisualizerComponent::renderOpenGL()
     if (uOnsetPulseLoc >= 0) glUniform1f (uOnsetPulseLoc, onsetPulse);
     if (uBeatPhaseLoc  >= 0) glUniform1f (uBeatPhaseLoc,  beatPhase);
     if (uDpiScaleLoc   >= 0) glUniform1f (uDpiScaleLoc,   dpiScale);
+
+    if (uDriveLoc >= 0) glUniform1f (uDriveLoc, kDrive);
+    if (uBassKLoc >= 0) glUniform1f (uBassKLoc, kBass);
+    if (uHueLoc   >= 0) glUniform1f (uHueLoc,   kHue);
+    if (uGrainLoc >= 0) glUniform1f (uGrainLoc, kGrain);
+    if (uWarpLoc  >= 0) glUniform1f (uWarpLoc,  kWarp);
+    if (uTrailLoc >= 0) glUniform1f (uTrailLoc, kTrail);
+    if (uPopLoc   >= 0) glUniform1f (uPopLoc,   kPop);
+    if (uTempLoc  >= 0) glUniform1f (uTempLoc,  kTemp);
 
     glBindVertexArray (vao);
     glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);

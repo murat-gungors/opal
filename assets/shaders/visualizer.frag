@@ -13,6 +13,16 @@ uniform float uBeatPhase;
 uniform float uDpiScale;
 uniform sampler2D uPrevFrame;
 
+// ---- 8 knob uniforms (0..1, default 0.5) -----------------------------------
+uniform float uDrive;   // master gain on all audio-driven amplitudes
+uniform float uBassK;   // bass amount: form scale / halo width
+uniform float uHue;     // very subtle warm/cool tint at output (monochrome shader)
+uniform float uGrain;   // grain amplitude scale
+uniform float uWarp;    // domain warp + bend angle scale
+uniform float uTrail;   // feedback decay   → mix(0.65, 0.99, uTrail)
+uniform float uPop;     // onset spatial effect strength
+uniform float uTemp;    // ember warm-orange ↔ pure white tint balance
+
 // =====================================================================
 // Helpers
 // =====================================================================
@@ -44,8 +54,6 @@ float fbm (vec2 p)
     return v;
 }
 
-// Curl of value-noise scalar field — gives a 2D divergence-free vector
-// field, perfect for advecting feedback so trails flow like a fluid.
 vec2 curlNoise (vec2 p)
 {
     const float e = 0.012;
@@ -70,16 +78,9 @@ float smin (float a, float b, float k)
     return mix (b, a, h) - k * h * (1.0 - h);
 }
 
-vec2 mirrorFold (vec2 uv)
-{
-    return vec2 (0.5 - abs (uv.x - 0.5), uv.y);
-}
+vec2 mirrorFold (vec2 uv) { return vec2 (0.5 - abs (uv.x - 0.5), uv.y); }
 
-mat2 rot (float a)
-{
-    float c = cos (a), s = sin (a);
-    return mat2 (c, -s, s, c);
-}
+mat2 rot (float a) { float c = cos (a), s = sin (a); return mat2 (c, -s, s, c); }
 
 // =====================================================================
 // Main
@@ -87,37 +88,50 @@ mat2 rot (float a)
 
 void main()
 {
-    // ---- Curl-advected feedback (flockaroo-style) ------------------------
-    // Sample previous frame at a curl-noise offset so trails *flow* rather
-    // than fade in place. The offset is tiny (≈ 1 px equivalent at 1080p)
-    // but accumulates over many frames into pseudo-fluid motion.
-    const float feedbackDecay = 0.87;
+    // ---- Drive-scaled audio values ----------------------------------------
+    // uDrive 0..1 acts as a master gain — 0 silences all audio response, 0.5
+    // is the calibrated default, 1 doubles every reaction. The shader uses
+    // these scaled values everywhere it would otherwise sample the raw bus.
+    const float driveScale = 2.0;   // knob max → 2× default response
+    float drv      = uDrive * driveScale;
+    float bassD    = uBass     * drv;
+    float midD     = uMid      * drv;
+    float highD    = uHigh     * drv;
+    float bassPkD  = uBassPeak * drv;
+    float midPkD   = uMidPeak  * drv;
+    float bassAvgD = uBassAvg  * drv;
+    float midAvgD  = uMidAvg   * drv;
+
+    // ---- Curl-advected feedback ------------------------------------------
+    float feedbackDecay = mix (0.65, 0.99, uTrail);
     vec2  flow = curlNoise (vUv * 3.0 + uTime * 0.13) * 0.0028;
     vec3  prev = texture (uPrevFrame, vUv - flow).rgb * feedbackDecay;
 
-    // ---- Mirror fold + warped coords -------------------------------------
+    // ---- Mirror + warped coords ------------------------------------------
     vec2  uvSym  = mirrorFold (vUv);
     vec2  p      = uvSym * 2.0 - 1.0;
     float aspect = uResolution.x / max (uResolution.y, 1.0);
     p.x *= aspect;
 
-    float warpAmp = 0.035 + uMid * 0.07;
-    vec2  warp    = vec2 (sin (p.y * 2.6 + uTime * 0.42),
-                          cos (p.x * 2.6 + uTime * 0.36)) * warpAmp;
-    vec2  pw      = p + warp;
+    float warpScale = uWarp * 2.0;
+    float warpAmp   = (0.035 + midD * 0.07) * warpScale;
+    vec2  warp      = vec2 (sin (p.y * 2.6 + uTime * 0.42),
+                            cos (p.x * 2.6 + uTime * 0.36)) * warpAmp;
+    vec2  pw        = p + warp;
 
-    // ---- Composition phases (slow, non-harmonic) -------------------------
+    // ---- Composition phases ----------------------------------------------
     float phaseDisperse = 0.5 + 0.5 * sin (uTime * 0.071);
     float phaseBend     = 0.5 + 0.5 * sin (uTime * 0.053 + 1.7);
     float phaseMerge    = 0.5 + 0.5 * sin (uTime * 0.091 + 3.2);
     float phaseDeform   = 0.5 + 0.5 * sin (uTime * 0.113 + 0.8);
 
-    float bendAngle = mix (-0.28, 0.28, phaseBend) * (0.30 + uMid * 0.60);
+    float bendAngle = mix (-0.28, 0.28, phaseBend) * (0.30 + midD * 0.60) * warpScale;
     vec2  pwb       = rot (bendAngle) * pw;
 
-    // ---- Five SDF forms — softer merge so they stay distinct -------------
-    float disp  = mix (0.10, 0.55, phaseDisperse);
-    float baseR = 0.32 + uBass * 0.15;
+    // ---- Five SDF forms ---------------------------------------------------
+    float disp    = mix (0.10, 0.55, phaseDisperse);
+    float bassToR = uBassK * 2.0;                       // BASS knob amount
+    float baseR   = 0.32 + bassD * 0.15 * bassToR;
 
     vec2 c1 = vec2 (0.0, 0.0)
             + vec2 (sin (uTime * 0.13) * 0.04, cos (uTime * 0.11) * 0.04);
@@ -142,17 +156,14 @@ void main()
     float d4 = sdCircle (pwb - c4, r4);
     float d5 = sdCircle (pwb - c5, r5);
 
-    // Tighter merge range — forms remain distinct most of the time.
     float mergeK = mix (0.06, 0.18, phaseMerge);
     float d      = smin (smin (smin (smin (d1, d2, mergeK), d3, mergeK), d4, mergeK), d5, mergeK);
 
-    // Edge deform — FBM displacement keeps the silhouette rumpled.
-    float deformAmp = mix (0.012, 0.035, phaseDeform) + uOnsetPulse * 0.020;
+    float popScale  = uPop * 2.0;
+    float deformAmp = mix (0.012, 0.035, phaseDeform) + uOnsetPulse * 0.020 * popScale;
     d += (fbm (pwb * 2.5 + uTime * 0.20) - 0.5) * deformAmp;
 
-    // ---- Architectural vertical bars (hg_sdf pMod1 domain repetition) ----
-    // Only visible when mid-band is sustained — adds rhythmic columns in
-    // the deep background, like distant brutalist pylons.
+    // ---- Architectural vertical bars -------------------------------------
     float columns = 0.0;
     {
         vec2  cp     = pwb * 1.2;
@@ -160,28 +171,27 @@ void main()
         float cellX  = mod (cp.x + period, 2.0 * period) - period;
         float colD   = sdBox (vec2 (cellX, cp.y - 0.20), vec2 (0.015, 0.55));
         float colMask = 1.0 - smoothstep (-fwidth (colD), fwidth (colD), colD);
-        columns = colMask * smoothstep (0.18, 0.55, uMidAvg) * 0.16;
+        columns = colMask * smoothstep (0.18, 0.55, midAvgD) * 0.16;
     }
 
-    // ---- Atmospheric haze -------------------------------------------------
+    // ---- Atmospheric haze ------------------------------------------------
     vec2  hazeUv = uvSym * 2.0 + vec2 (uTime * 0.022, uTime * 0.017);
     float haze   = smoothstep (0.25, 0.85, fbm (hazeUv));
 
-    // ---- Background -------------------------------------------------------
+    // ---- Background ------------------------------------------------------
     float vertical = mix (0.05, 0.22, vUv.y);
     float vignette = 1.0 - smoothstep (0.6, 1.4, length (p));
     float bg       = vertical * vignette;
-    bg += haze * (0.13 + uMidAvg * 0.25);   // long-avg drives ambient haze level
+    bg += haze * (0.13 + midAvgD * 0.25);
     bg += columns;
 
-    // ---- Form fill: dimmer + textured + contour + drips ------------------
-    float surface = fbm (pwb * 6.0 + uTime * 0.04);
+    // ---- Form fill (texture + contour + drips) ---------------------------
+    float surface  = fbm (pwb * 6.0 + uTime * 0.04);
     float formFill = mix (0.18, 0.42, smoothstep (-0.20, 0.55, vUv.y))
-                   + uBass * 0.05
-                   + uOnsetPulse * 0.05;
+                   + bassD * 0.05 * bassToR
+                   + uOnsetPulse * 0.05 * popScale;
     formFill *= 0.80 + 0.20 * surface;
 
-    // Topographic contour lines
     float contour = 0.0;
     if (d < 0.0)
     {
@@ -192,7 +202,6 @@ void main()
     }
     formFill += contour * 0.22;
 
-    // Vertical drips
     float drip = 0.0;
     if (d < 0.04)
     {
@@ -212,16 +221,16 @@ void main()
     formFill -= drip * 0.30;
     formFill  = clamp (formFill, 0.0, 1.0);
 
-    // ---- Composite form ---------------------------------------------------
+    // ---- Composite form --------------------------------------------------
     float formMask = 1.0 - smoothstep (-fwidth (d), fwidth (d), d);
     vec3  scene    = mix (vec3 (bg), vec3 (formFill), formMask);
 
-    // ---- Halo — smaller than before, peak adds transient flicker only ---
-    float haloWidth = 0.08 + uBass * 0.10;
+    // ---- Halo ------------------------------------------------------------
+    float haloWidth = 0.08 + bassD * 0.10 * bassToR;
     float halo      = exp (-max (d, 0.0) * (8.0 / haloWidth));
-    scene += vec3 (halo * (0.05 + uBass * 0.08 + uBassPeak * 0.10));
+    scene += vec3 (halo * (0.05 + bassD * 0.08 * bassToR + bassPkD * 0.10 * popScale));
 
-    // ---- Background star field (asymmetric — uses unmirrored vUv) -------
+    // ---- Background star field (asymmetric) -----------------------------
     {
         vec2  starP = vUv * vec2 (140.0, 100.0);
         vec2  cell  = floor (starP);
@@ -235,42 +244,46 @@ void main()
         }
     }
 
-    // ---- Ember field — density modulated by mid-PEAK (transient bursts) -
-    // Plain vUv (no mirror) so embers scatter asymmetrically and break up
-    // the otherwise-symmetric composition.
+    // ---- Ember field (asymmetric, density via midPeak) -------------------
     {
         vec2  q     = vUv * vec2 (90.0, 60.0);
         vec2  cell  = floor (q);
         vec2  sub   = fract (q) - 0.5;
         float h     = hash (cell + 23.0);
-        float thr   = mix (0.988, 0.972, uMidPeak); // peak content → more embers
+        float thr   = mix (0.988, 0.972, midPkD * popScale);
         if (h > thr)
         {
             float dEmb  = length (sub);
             float pulse = 0.55 + 0.45 * sin (uTime * 4.0 + h * 60.0);
             float emb   = smoothstep (0.18, 0.0, dEmb) * pulse;
-            vec3  emberC = mix (vec3 (1.0), vec3 (1.0, 0.55, 0.22), 0.30);
-            scene += emberC * emb * (0.22 + uHigh * 0.35);
+            // TEMP knob: 0 → pure-white embers (cold); 1 → strongly orange-warm.
+            vec3  emberC = mix (vec3 (1.0), vec3 (1.0, 0.55, 0.22), uTemp * 0.6);
+            scene += emberC * emb * (0.22 + highD * 0.35);
         }
     }
 
-    // ---- Feedback (curl-advected) ----------------------------------------
+    // ---- Feedback ---------------------------------------------------------
     scene += prev;
 
     // ---- Beat-phase × RMS micro modulation -------------------------------
-    // NOTE: deliberately NOT applying a global scene *= (1 + onset*0.25)
-    // pump anymore. Onset is expressed spatially (deform burst, halo peak,
-    // ember density via midPeak) — fixes the "everything flashes white on
-    // every kick" complaint.
     scene *= 1.0 + 0.02 * sin (uBeatPhase * 6.2831853) * uRms;
 
     // ---- Reinhard tonemap ------------------------------------------------
     scene = scene / (1.0 + scene);
 
-    // ---- DPI-aware grain --------------------------------------------------
+    // ---- HUE knob: subtle warm/cool tint (monochrome shader) -------------
+    // uHue 0 → cool blue cast; 0.5 → neutral; 1 → warm sepia cast.
+    float warmth  = (uHue - 0.5) * 2.0;  // -1..+1
+    vec3  hueTint = vec3 (1.0 + 0.08 * warmth,
+                          1.0,
+                          1.0 - 0.06 * warmth);
+    scene *= hueTint;
+
+    // ---- DPI-aware grain (GRAIN knob scales amplitude) -------------------
+    float grainScale = uGrain * 2.0;
     vec2  grainP   = vUv * uResolution.xy * 0.5 * uDpiScale + uTime * 50.0;
     float n        = hash (grainP) * 2.0 - 1.0;
-    float grainAmp = 0.018 + uHigh * 0.035;
+    float grainAmp = (0.018 + highD * 0.035) * grainScale;
     scene += vec3 (n) * grainAmp;
 
     fragColor = vec4 (scene, 1.0);
