@@ -80,6 +80,26 @@ float smin (float a, float b, float k)
 
 vec2 mirrorFold (vec2 uv) { return vec2 (0.5 - abs (uv.x - 0.5), uv.y); }
 
+// PatternFlow-style N-fold radial symmetry (kaleidoscope). The screen-space
+// UV is mapped to polar coords around the centre, the angle is folded into a
+// single slice of width 2π/folds, mirrored within that slice, and then
+// converted back to a UV. Sampling shader logic at the result causes the
+// content of one wedge to repeat (and mirror) N times around the centre.
+vec2 radialFold (vec2 uv, float folds)
+{
+    vec2  c     = uv - vec2 (0.5);
+    float r     = length (c);
+    float theta = atan (c.y, c.x);
+
+    float slice     = 6.2831853 / folds;
+    float halfSlice = slice * 0.5;
+
+    theta = theta - floor (theta / slice) * slice;     // wrap into [0, slice)
+    if (theta > halfSlice) theta = slice - theta;      // mirror within slice
+
+    return vec2 (cos (theta), sin (theta)) * r + vec2 (0.5);
+}
+
 mat2 rot (float a) { float c = cos (a), s = sin (a); return mat2 (c, -s, s, c); }
 
 // =====================================================================
@@ -178,11 +198,28 @@ void main()
     vec2  hazeUv = uvSym * 2.0 + vec2 (uTime * 0.022, uTime * 0.017);
     float haze   = smoothstep (0.25, 0.85, fbm (hazeUv));
 
+    // ---- HUE knob → radial fold count for the plasma layer --------------
+    // 0 → 1-fold (no symmetry, raw plasma), 0.5 → 4 folds, 1 → 8 folds.
+    float foldCount = 1.0 + floor (uHue * 7.0 + 0.5);
+    vec2  plasmaUv  = (foldCount > 1.5) ? radialFold (vUv, foldCount) : vUv;
+
+    // ---- Interference plasma field (PatternFlow Symmetry-Folds technique) -
+    // sin/cos cross-modulated, layered over the haze for plasma-like depth.
+    // Sustained mid-band drives amplitude; midPeak adds a transient kick.
+    vec2  ip   = (plasmaUv - 0.5) * 2.0;
+    ip.x      *= aspect;
+    float wA   = sin (ip.y * 1.5 + uTime * 0.30);
+    float wB   = cos (ip.x * 1.5 + uTime * 0.25);
+    float v1   = sin ((ip.x + wA) * 2.0 + uTime * 0.50);
+    float v2   = cos ((ip.y + wB) * 2.0 - uTime * 0.40);
+    float interf = smoothstep (0.30, 1.50, abs (v1 + v2));
+
     // ---- Background ------------------------------------------------------
     float vertical = mix (0.05, 0.22, vUv.y);
     float vignette = 1.0 - smoothstep (0.6, 1.4, length (p));
     float bg       = vertical * vignette;
-    bg += haze * (0.13 + midAvgD * 0.25);
+    bg += haze   * (0.13 + midAvgD * 0.25);
+    bg += interf * (0.08 + midAvgD * 0.18 + midPkD * 0.10);
     bg += columns;
 
     // ---- Form fill (texture + contour + drips) ---------------------------
@@ -271,13 +308,8 @@ void main()
     // ---- Reinhard tonemap ------------------------------------------------
     scene = scene / (1.0 + scene);
 
-    // ---- HUE knob: subtle warm/cool tint (monochrome shader) -------------
-    // uHue 0 → cool blue cast; 0.5 → neutral; 1 → warm sepia cast.
-    float warmth  = (uHue - 0.5) * 2.0;  // -1..+1
-    vec3  hueTint = vec3 (1.0 + 0.08 * warmth,
-                          1.0,
-                          1.0 - 0.06 * warmth);
-    scene *= hueTint;
+    // (HUE knob now drives the radial-fold count earlier in the pipeline;
+    //  the previous warm/cool tint at this point has been retired.)
 
     // ---- DPI-aware grain (GRAIN knob scales amplitude) -------------------
     float grainScale = uGrain * 2.0;

@@ -23,7 +23,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     return juce::AudioProcessorValueTreeState::ParameterLayout {
         knob (ParamID::drive, "Drive"),
         knob (ParamID::bass,  "Bass"),
-        knob (ParamID::hue,   "Hue"),
+        // Spec §5 originally called this "Hue". After Stage 5.1 the same
+        // knob drives the radial-fold count (kaleidoscope) instead — much
+        // more impactful than a subtle tint in a monochrome shader. The
+        // ParameterID stays "hue" for state-recall back-compat; only the
+        // host-visible name changes.
+        knob (ParamID::hue,   "Fold"),
         knob (ParamID::grain, "Grain"),
         knob (ParamID::warp,  "Warp"),
         knob (ParamID::trail, "Trail"),

@@ -13,7 +13,7 @@ namespace
     constexpr std::array<KnobDef, 8> kKnobs {{
         { opal::ParamID::drive, "DRIVE" },
         { opal::ParamID::bass,  "BASS"  },
-        { opal::ParamID::hue,   "HUE"   },
+        { opal::ParamID::hue,   "FOLD"  },     // see PluginParameters.cpp
         { opal::ParamID::grain, "GRAIN" },
         { opal::ParamID::warp,  "WARP"  },
         { opal::ParamID::trail, "TRAIL" },
