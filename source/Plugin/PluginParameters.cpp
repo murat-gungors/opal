@@ -33,7 +33,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         knob (ParamID::warp,  "Warp"),
         knob (ParamID::trail, "Trail"),
         knob (ParamID::pop,   "Pop"),
-        knob (ParamID::temp,  "Temp")
+        // Spec §5 originally called this "Temp" (palette warm/cool). After
+        // Stage 5.2 the same knob blends the entire scene from the cinematic
+        // monochrome look (0) into a fully HSV-cycled colour scheme (1) —
+        // labelled "Color" everywhere user-visible. Parameter ID stays "temp"
+        // for state-recall back-compat.
+        knob (ParamID::temp,  "Color")
     };
 }
 

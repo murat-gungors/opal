@@ -18,7 +18,7 @@ namespace
         { opal::ParamID::warp,  "WARP"  },
         { opal::ParamID::trail, "TRAIL" },
         { opal::ParamID::pop,   "POP"   },
-        { opal::ParamID::temp,  "TEMP"  }
+        { opal::ParamID::temp,  "COLOR" }    // see PluginParameters.cpp
     }};
 
     constexpr auto kStripBgColour    = 0xff14181c;
